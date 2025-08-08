@@ -8,7 +8,6 @@ export default function TournamentDoodleJump() {
 
     const [score, setScore] = useState(0);
     const scoreRef = useRef(score);
-
     const [timeRemaining, setTimeRemaining] = useState('');
     const [gameStarted, setGameStarted] = useState(false);
     const [gameOver, setGameOver] = useState(false);
@@ -17,8 +16,10 @@ export default function TournamentDoodleJump() {
         prizePool: 0,
         playerCount: 0,
         userBestScore: 0,
-        hasEntered: false
+        hasEntered: false, // This will be handled by the real payment flow in Phase 2
     });
+    
+    // The leaderboard state is now filled by your API
     const [leaderboard, setLeaderboard] = useState([]);
 
     const gameRef = useRef({
@@ -28,6 +29,25 @@ export default function TournamentDoodleJump() {
         keys: { left: false, right: false },
         gameRunning: false,
     });
+    
+    // New function to fetch the latest leaderboard data from your API
+    const fetchLeaderboard = async () => {
+        try {
+            const response = await fetch('/api/leaderboard');
+            if (!response.ok) throw new Error('Failed to fetch');
+            const data = await response.json();
+            setLeaderboard(data);
+            // Update player count based on leaderboard length from the database
+            setTournamentData(prev => ({...prev, playerCount: data.length}));
+        } catch (error) {
+            console.error("Failed to fetch leaderboard:", error);
+        }
+    };
+    
+    // Fetch initial leaderboard when the component loads
+    useEffect(() => {
+        fetchLeaderboard();
+    }, []);
     
     const getTimeRemaining = () => {
         const now = new Date();
@@ -51,37 +71,42 @@ export default function TournamentDoodleJump() {
         return () => clearInterval(timerInterval);
     }, []);
 
-    useEffect(() => {
-        if (router.query.status === 'success') {
-            setTournamentData(prev => {
-                if (!prev.hasEntered) {
-                    return {
-                        ...prev,
-                        hasEntered: true,
-                        playerCount: prev.playerCount + 1,
-                    };
-                }
-                return { ...prev, hasEntered: true };
-            });
-            router.replace('/', undefined, { shallow: true });
-        }
-    }, [router.query]);
-
     const handleJoinTournament = () => {
-        const paymentUrl = `/tournament/demo-payment`;
-        window.open(paymentUrl, 'tournament-payment', 'width=600,height=700,scrollbars=yes,resizable=yes');
+      // In Phase 2, this will call a checkout API. For now, it just lets you in.
+      setTournamentData(prev => ({ ...prev, hasEntered: true }));
     };
 
-    const submitScore = (finalScore) => {
-        const newBest = Math.max(tournamentData.userBestScore, finalScore);
-        setTournamentData(prev => ({ ...prev, userBestScore: newBest }));
-        const newEntry = { id: 'demo-user', playerName: 'You', score: newBest };
-        setLeaderboard(prev => {
-            const otherPlayers = prev.filter(e => e.id !== 'demo-user');
-            const updatedLeaderboard = [...otherPlayers, newEntry];
-            updatedLeaderboard.sort((a, b) => b.score - a.score);
-            return updatedLeaderboard.slice(0, 10);
-        });
+    // submitScore is now an async function that calls your API
+    const submitScore = async (finalScore) => {
+        // Whop provides this JWT in the URL when a user opens your app
+        const { whop_jwt } = router.query;
+        if (!whop_jwt) {
+            console.error("Not logged in via Whop, can't submit score.");
+            setTournamentData(prev => ({...prev, userBestScore: Math.max(prev.userBestScore, finalScore)}));
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/scores/submit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${whop_jwt}`,
+                },
+                body: JSON.stringify({ score: finalScore }),
+            });
+
+            if (!response.ok) throw new Error('Score submission failed');
+
+            // After submitting, refresh the leaderboard to show the new score
+            await fetchLeaderboard();
+            
+            // Update the local "best score" for the Game Over screen
+            setTournamentData(prev => ({...prev, userBestScore: Math.max(prev.userBestScore, finalScore)}));
+
+        } catch (error) {
+            console.error("Failed to submit score:", error);
+        }
     };
     
     const handlePlayAgain = () => {
@@ -120,9 +145,6 @@ export default function TournamentDoodleJump() {
         gameState.player = { x: 191, y: 400, vx: 0, vy: 0, width: 40, height: 40 };
         gameState.gameRunning = false;
         
-        // ### THIS IS THE best FIX ###
-        // Trigger deploy
-        // Reset keyboard state to prevent the drifting bug on new games.
         gameState.keys = { left: false, right: false };
         
         setScore(0);
@@ -345,9 +367,9 @@ export default function TournamentDoodleJump() {
                                     alignItems: 'center',
                                     padding: '8px',
                                     margin: '5px 0',
-                                    background: entry.id === 'demo-user' ? 'rgba(255, 215, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                                    background: entry.playerName === 'You' ? 'rgba(255, 215, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)',
                                     borderRadius: '5px',
-                                    border: entry.id === 'demo-user' ? '1px solid #FFD700' : 'none'
+                                    border: entry.playerName === 'You' ? '1px solid #FFD700' : 'none'
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center' }}>
                                         <span style={{ 
