@@ -120,7 +120,8 @@ export default function TournamentDoodleJump() {
         gameState.player = { x: 191, y: 400, vx: 0, vy: 0, width: 40, height: 40 };
         gameState.gameRunning = false;
         
-        // ### THIS IS THE FIX ###
+        // ### THIS IS THE best FIX ###
+        // Trigger deploy
         // Reset keyboard state to prevent the drifting bug on new games.
         gameState.keys = { left: false, right: false };
         
