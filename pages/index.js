@@ -68,6 +68,7 @@ export default function TournamentDoodleJump() {
     }, []);
     
     // This is the updated function that calls your real checkout API
+    // This is the updated function that calls your real checkout APIs
     const handleJoinTournament = async () => {
         try {
             const response = await fetch('/api/checkout/create', {
