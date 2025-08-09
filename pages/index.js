@@ -67,28 +67,10 @@ export default function TournamentDoodleJump() {
         return () => clearInterval(timerInterval);
     }, []);
     
-    // This is the updated function that calls your real checkout API
-    // This is the updated function that calls your real checkout APIs
-    const handleJoinTournament = async () => {
-        try {
-            const response = await fetch('/api/checkout/create', {
-                method: 'POST',
-            });
-
-            if (!response.ok) {
-                const errorResult = await response.json();
-                throw new Error(errorResult.message || 'Could not create payment link.');
-            }
-
-            const { checkoutUrl } = await response.json();
-
-            // Redirect the user to the official Whop checkout page
-            window.location.href = checkoutUrl;
-
-        } catch (error) {
-            console.error(error);
-            alert('Error: ' + error.message);
-        }
+    // This function now uses your static checkout link, bypassing the API error.
+    const handleJoinTournament = () => {
+        const staticCheckoutUrl = 'https://whop.com/checkout/plan_v7cxYiUA3uNIX?d2c=true';
+        window.location.href = staticCheckoutUrl;
     };
 
     const submitScore = async (finalScore) => {
