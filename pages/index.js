@@ -16,10 +16,9 @@ export default function TournamentDoodleJump() {
         prizePool: 0,
         playerCount: 0,
         userBestScore: 0,
-        hasEntered: false, // This will be handled by the real payment flow in Phase 2
+        hasEntered: false,
     });
     
-    // The leaderboard state is now filled by your API
     const [leaderboard, setLeaderboard] = useState([]);
 
     const gameRef = useRef({
@@ -30,21 +29,18 @@ export default function TournamentDoodleJump() {
         gameRunning: false,
     });
     
-    // New function to fetch the latest leaderboard data from your API
     const fetchLeaderboard = async () => {
         try {
             const response = await fetch('/api/leaderboard');
             if (!response.ok) throw new Error('Failed to fetch');
             const data = await response.json();
             setLeaderboard(data);
-            // Update player count based on leaderboard length from the database
             setTournamentData(prev => ({...prev, playerCount: data.length}));
         } catch (error) {
             console.error("Failed to fetch leaderboard:", error);
         }
     };
     
-    // Fetch initial leaderboard when the component loads
     useEffect(() => {
         fetchLeaderboard();
     }, []);
@@ -70,15 +66,31 @@ export default function TournamentDoodleJump() {
         }, 1000);
         return () => clearInterval(timerInterval);
     }, []);
+    
+    // This is the updated function that calls your real checkout API
+    const handleJoinTournament = async () => {
+        try {
+            const response = await fetch('/api/checkout/create', {
+                method: 'POST',
+            });
 
-    const handleJoinTournament = () => {
-      // In Phase 2, this will call a checkout API. For now, it just lets you in.
-      setTournamentData(prev => ({ ...prev, hasEntered: true }));
+            if (!response.ok) {
+                const errorResult = await response.json();
+                throw new Error(errorResult.message || 'Could not create payment link.');
+            }
+
+            const { checkoutUrl } = await response.json();
+
+            // Redirect the user to the official Whop checkout page
+            window.location.href = checkoutUrl;
+
+        } catch (error) {
+            console.error(error);
+            alert('Error: ' + error.message);
+        }
     };
 
-    // submitScore is now an async function that calls your API
     const submitScore = async (finalScore) => {
-        // Whop provides this JWT in the URL when a user opens your app
         const { whop_jwt } = router.query;
         if (!whop_jwt) {
             console.error("Not logged in via Whop, can't submit score.");
@@ -98,10 +110,7 @@ export default function TournamentDoodleJump() {
 
             if (!response.ok) throw new Error('Score submission failed');
 
-            // After submitting, refresh the leaderboard to show the new score
             await fetchLeaderboard();
-            
-            // Update the local "best score" for the Game Over screen
             setTournamentData(prev => ({...prev, userBestScore: Math.max(prev.userBestScore, finalScore)}));
 
         } catch (error) {
