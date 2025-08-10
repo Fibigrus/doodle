@@ -1,8 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { sql } from '@vercel/postgres';
 
-export default function TournamentDoodleJump() {
+async function validateWhopJwt(jwt) {
+  const JWKS = createRemoteJWKSet(new URL('https://data.whop.com/api/v2/oauth/jwks'));
+  const { payload } = await jwtVerify(jwt, JWKS, {
+    issuer: 'urn:whop.com:exp-proxy',
+  });
+  if (!payload.has_access) {
+    throw new Error('You do not have access to this app.');
+  }
+  return payload;
+}
+
+export default function TournamentDoodleJump({ user, initialLeaderboard, error }) {
     const canvasRef = useRef(null);
     const router = useRouter();
 
@@ -14,12 +27,12 @@ export default function TournamentDoodleJump() {
     const [showGameOverScreen, setShowGameOverScreen] = useState(false);
     const [tournamentData, setTournamentData] = useState({
         prizePool: 0,
-        playerCount: 0,
+        playerCount: initialLeaderboard.length,
         userBestScore: 0,
         hasEntered: false,
     });
     
-    const [leaderboard, setLeaderboard] = useState([]);
+    const [leaderboard, setLeaderboard] = useState(initialLeaderboard);
 
     const gameRef = useRef({
         player: { x: 191, y: 400, vx: 0, vy: 0, width: 40, height: 40 },
@@ -41,22 +54,15 @@ export default function TournamentDoodleJump() {
         }
     };
     
-    useEffect(() => {
-        fetchLeaderboard();
-    }, []);
-    
     const getTimeRemaining = () => {
         const now = new Date();
         const endTime = new Date(now);
         endTime.setHours(23, 59, 59, 999);
         const diff = endTime - now;
-
         if (diff <= 0) return "00:00:00";
-
         const hours = Math.floor(diff / 3600000).toString().padStart(2, '0');
         const minutes = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
         const seconds = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
-        
         return `${hours}:${minutes}:${seconds}`;
     };
     
@@ -67,14 +73,13 @@ export default function TournamentDoodleJump() {
         return () => clearInterval(timerInterval);
     }, []);
     
-    // This function now uses your static checkout link, bypassing the API error.
     const handleJoinTournament = () => {
-        const staticCheckoutUrl = 'https://whop.com/checkout/plan_zFUQp3nUJo5fm?d2c=true';
+        const staticCheckoutUrl = 'https://whop.com/checkout/plan_v7cxYiUA3uNIX?d2c=true';
         window.location.href = staticCheckoutUrl;
     };
 
     const submitScore = async (finalScore) => {
-        const { whop_jwt } = router.query;
+        const whop_jwt = router.query.whop_jwt || router.query['whop-dev-user-token'];
         if (!whop_jwt) {
             console.error("Not logged in via Whop, can't submit score.");
             setTournamentData(prev => ({...prev, userBestScore: Math.max(prev.userBestScore, finalScore)}));
@@ -95,7 +100,6 @@ export default function TournamentDoodleJump() {
 
             await fetchLeaderboard();
             setTournamentData(prev => ({...prev, userBestScore: Math.max(prev.userBestScore, finalScore)}));
-
         } catch (error) {
             console.error("Failed to submit score:", error);
         }
@@ -109,18 +113,14 @@ export default function TournamentDoodleJump() {
     };
 
     // Main Game Logic Effect
-    // Main Game Logic Effect3
     useEffect(() => {
-        if (!gameStarted || gameOver) {
-            return;
-        }
+        if (!gameStarted || gameOver) return;
 
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const ctx = canvas.getContext('2d');
         const gameState = gameRef.current;
-        
         let totalScrolledHeight = 0;
 
         canvas.width = 422;
@@ -134,12 +134,9 @@ export default function TournamentDoodleJump() {
             return platforms;
         };
         gameState.platforms = initPlatforms();
-        gameState.enemies = [];
         gameState.player = { x: 191, y: 400, vx: 0, vy: 0, width: 40, height: 40 };
         gameState.gameRunning = false;
-        
         gameState.keys = { left: false, right: false };
-        
         setScore(0);
         scoreRef.current = 0;
 
@@ -280,6 +277,18 @@ export default function TournamentDoodleJump() {
         };
     }, [gameStarted, gameOver]);
 
+    if (error) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', color: 'white', textAlign: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                <div>
+                    <h1>Access Denied</h1>
+                    <p>{error}</p>
+                    <p>Please make sure you have access to this app through Whop.</p>
+                </div>
+            </div>
+        );
+    }
+    
     return (
         <>
             <Head><title>🏆 Doodle Jump Royale</title></Head>
@@ -327,30 +336,11 @@ export default function TournamentDoodleJump() {
                         color: 'white',
                         fontFamily: '"Press Start 2P", monospace'
                     }}>
-                        <h3 style={{
-                            color: '#FFD700',
-                            fontSize: '16px',
-                            margin: '0 0 15px 0',
-                            textAlign: 'center'
-                        }}>
-                            🏆 LEADERBOARD
-                        </h3>
-                        
-                        <div style={{
-                            background: 'rgba(255, 255, 255, 0.1)',
-                            padding: '10px',
-                            borderRadius: '8px',
-                            marginBottom: '15px',
-                            textAlign: 'center'
-                        }}>
-                            <p style={{ color: '#44FF44', fontSize: '12px', margin: '0 0 5px 0', fontWeight: 'bold' }}>
-                                PRIZE POOL: ${tournamentData.prizePool.toFixed(2)}
-                            </p>
-                            <p style={{ fontSize: '10px', margin: 0, color: '#AAA' }}>
-                                {tournamentData.playerCount} players entered
-                            </p>
+                        <h3 style={{ color: '#FFD700', fontSize: '16px', margin: '0 0 15px 0', textAlign: 'center' }}>🏆 LEADERBOARD</h3>
+                        <div style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '10px', borderRadius: '8px', marginBottom: '15px', textAlign: 'center' }}>
+                            <p style={{ color: '#44FF44', fontSize: '12px', margin: '0 0 5px 0', fontWeight: 'bold' }}>PRIZE POOL: ${tournamentData.prizePool.toFixed(2)}</p>
+                            <p style={{ fontSize: '10px', margin: 0, color: '#AAA' }}>{tournamentData.playerCount} players entered</p>
                         </div>
-
                         <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
                             {leaderboard.length > 0 ? (
                                 leaderboard.map((entry, index) => (
@@ -360,37 +350,19 @@ export default function TournamentDoodleJump() {
                                     alignItems: 'center',
                                     padding: '8px',
                                     margin: '5px 0',
-                                    background: entry.playerName === 'You' ? 'rgba(255, 215, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                                    background: user && entry.id === user.user_id ? 'rgba(255, 215, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)',
                                     borderRadius: '5px',
-                                    border: entry.playerName === 'You' ? '1px solid #FFD700' : 'none'
+                                    border: user && entry.id === user.user_id ? '1px solid #FFD700' : 'none'
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center' }}>
-                                        <span style={{ 
-                                            color: index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : index === 2 ? '#CD7F32' : '#FFF',
-                                            fontSize: '12px',
-                                            marginRight: '10px',
-                                            fontWeight: 'bold'
-                                        }}>
-                                            #{index + 1}
-                                        </span>
-                                        <span style={{ fontSize: '10px' }}>
-                                            {entry.playerName || `Player ${entry.id.slice(0, 6)}`}
-                                        </span>
+                                        <span style={{ color: index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : index === 2 ? '#CD7F32' : '#FFF', fontSize: '12px', marginRight: '10px', fontWeight: 'bold' }}>#{index + 1}</span>
+                                        <span style={{ fontSize: '10px' }}>{entry.playerName}</span>
                                     </div>
-                                    <span style={{ color: '#44FF44', fontSize: '12px', fontWeight: 'bold' }}>
-                                        {entry.score}
-                                    </span>
+                                    <span style={{ color: '#44FF44', fontSize: '12px', fontWeight: 'bold' }}>{entry.score}</span>
                                 </div>
                                 ))
                             ) : (
-                                <div style={{
-                                    textAlign: 'center',
-                                    color: '#666',
-                                    fontSize: '10px',
-                                    padding: '20px'
-                                }}>
-                                    Be the first to set a score!
-                                </div>
+                                <div style={{ textAlign: 'center', color: '#666', fontSize: '10px', padding: '20px' }}>Be the first to set a score!</div>
                             )}
                         </div>
                     </div>
@@ -398,4 +370,55 @@ export default function TournamentDoodleJump() {
             </div>
         </>
     );
+}
+
+export async function getServerSideProps(context) {
+  try {
+    // Add a test to see if the server can reach the JWKS URL
+    console.log('Attempting to fetch JWKS URL...');
+    const jwksResponse = await fetch('https://data.whop.com/api/v2/oauth/jwks');
+    console.log('JWKS fetch response status:', jwksResponse.status);
+    if (!jwksResponse.ok) {
+        throw new Error(`Failed to fetch JWKS: ${jwksResponse.statusText}`);
+    }
+    console.log('JWKS URL is reachable.');
+    
+    const whop_jwt = context.query.whop_jwt || context.query['whop-dev-user-token'];
+    
+    if (!whop_jwt) {
+      throw new Error('Please log in through Whop to play.');
+    }
+
+    let payload;
+    try {
+      payload = await validateWhopJwt(whop_jwt);
+    } catch (validationError) {
+      console.error('❌ JWT Validation Failed:', validationError.message);
+      throw new Error(`Token validation failed: ${validationError.message}`);
+    }
+
+    const tournamentId = 1;
+    const { rows: leaderboardData } = await sql`
+      SELECT
+        U.whop_user_id as "id",
+        U.whop_username as "playerName",
+        GE.best_score as "score"
+      FROM GameEntries GE
+      JOIN Users U ON GE.user_id = U.id
+      WHERE GE.tournament_id = ${tournamentId}
+      ORDER BY GE.best_score DESC
+      LIMIT 10;
+    `;
+
+    return {
+      props: {
+        user: payload, // The jose payload is the user object
+        initialLeaderboard: leaderboardData,
+        error: null,
+      },
+    };
+  } catch (error) {
+    console.error('❌ Error in getServerSideProps:', error.message);
+    return { props: { user: null, initialLeaderboard: [], error: error.message } };
+  }
 }

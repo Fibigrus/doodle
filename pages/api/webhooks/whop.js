@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import crypto from 'crypto'; // Using Node.js's built-in crypto library
+import crypto from 'crypto';
 
 export const config = {
   api: {
@@ -22,11 +22,13 @@ export default async function handler(req, res) {
 
   const buf = await buffer(req);
   const rawBody = buf.toString('utf8');
-  const signature = req.headers['whop-signature'];
+  
+  // ### THIS IS THE FIX ###
+  // We are now looking for the correct header name: 'x-whop-signature'
+  const signature = req.headers['x-whop-signature'];
   const webhookSecret = process.env.WHOP_WEBHOOK_SECRET;
 
   try {
-    // --- Manual Webhook Verification Logic ---
     if (!signature || !webhookSecret) {
       throw new Error('Missing signature or webhook secret.');
     }
@@ -51,13 +53,11 @@ export default async function handler(req, res) {
       .update(signedPayload)
       .digest('hex');
     
-    // Use timing-safe comparison to prevent timing attacks
     const isVerified = crypto.timingSafeEqual(Buffer.from(whopSignature), Buffer.from(expectedSignature));
 
     if (!isVerified) {
       throw new Error('Webhook signature verification failed.');
     }
-    // --- End of Manual Verification ---
 
     const data = JSON.parse(rawBody);
 
