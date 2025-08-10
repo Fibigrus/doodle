@@ -69,7 +69,7 @@ export default function TournamentDoodleJump() {
     
     // This function now uses your static checkout link, bypassing the API error.
     const handleJoinTournament = () => {
-        const staticCheckoutUrl = 'https://whop.com/checkout/plan_v7cxYiUA3uNIX?d2c=true';
+        const staticCheckoutUrl = 'https://whop.com/checkout/plan_zFUQp3nUJo5fm?d2c=true';
         window.location.href = staticCheckoutUrl;
     };
 
@@ -109,6 +109,7 @@ export default function TournamentDoodleJump() {
     };
 
     // Main Game Logic Effect
+    // Main Game Logic Effect3
     useEffect(() => {
         if (!gameStarted || gameOver) {
             return;

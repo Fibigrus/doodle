@@ -1,69 +1,93 @@
-import crypto from 'crypto';
+import { sql } from '@vercel/postgres';
+import crypto from 'crypto'; // Using Node.js's built-in crypto library
 
-// In-memory storage for tournament data (replace with database in production)
-let tournamentData = {
-  currentTournament: {
-    id: `tournament_${new Date().toISOString().split('T')[0]}`,
-    startTime: new Date().setHours(0, 0, 0, 0),
-    endTime: new Date().setHours(23, 59, 59, 999),
-    entries: [],
-    prizePool: 0
+export const config = {
+  api: {
+    bodyParser: false,
   },
-  leaderboard: []
 };
+
+async function buffer(readable) {
+  const chunks = [];
+  for await (const chunk of readable) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks);
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ message: 'Only POST requests are allowed.' });
   }
 
+  const buf = await buffer(req);
+  const rawBody = buf.toString('utf8');
+  const signature = req.headers['whop-signature'];
+  const webhookSecret = process.env.WHOP_WEBHOOK_SECRET;
+
   try {
-    // Verify webhook signature
-    const signature = req.headers['x-whop-signature'];
-    const payload = JSON.stringify(req.body);
+    // --- Manual Webhook Verification Logic ---
+    if (!signature || !webhookSecret) {
+      throw new Error('Missing signature or webhook secret.');
+    }
+
+    const sigParts = signature.split(',').reduce((acc, part) => {
+      const [key, value] = part.split('=');
+      acc[key] = value;
+      return acc;
+    }, {});
+    
+    const timestamp = sigParts.t;
+    const whopSignature = sigParts.v1;
+
+    if (!timestamp || !whopSignature) {
+      throw new Error('Invalid signature format.');
+    }
+
+    const signedPayload = `${timestamp}.${rawBody}`;
+    
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.WHOP_WEBHOOK_SECRET)
-      .update(payload)
+      .createHmac('sha256', webhookSecret)
+      .update(signedPayload)
       .digest('hex');
+    
+    // Use timing-safe comparison to prevent timing attacks
+    const isVerified = crypto.timingSafeEqual(Buffer.from(whopSignature), Buffer.from(expectedSignature));
 
-    if (`sha256=${expectedSignature}` !== signature) {
-      console.error('Invalid webhook signature');
-      return res.status(401).json({ error: 'Invalid signature' });
+    if (!isVerified) {
+      throw new Error('Webhook signature verification failed.');
+    }
+    // --- End of Manual Verification ---
+
+    const data = JSON.parse(rawBody);
+
+    if (data.type === 'payment.succeeded') {
+      console.log('✅ Payment succeeded event received and verified!');
+      
+      const { whop_user_id, username } = data.data.user;
+      const tournamentId = 1;
+
+      await sql`
+        INSERT INTO Users (whop_user_id, whop_username)
+        VALUES (${whop_user_id}, ${username})
+        ON CONFLICT (whop_user_id) DO UPDATE SET whop_username = ${username};
+      `;
+
+      const { rows: users } = await sql`SELECT id FROM Users WHERE whop_user_id = ${whop_user_id};`;
+      const internalUserId = users[0].id;
+      
+      await sql`
+        INSERT INTO GameEntries (user_id, tournament_id, best_score)
+        VALUES (${internalUserId}, ${tournamentId}, 0)
+        ON CONFLICT (user_id, tournament_id) DO NOTHING;
+      `;
+
+      console.log(`Granted tournament access to user: ${username}`);
     }
 
-    const { type, data } = req.body;
-
-    if (type === 'payment_succeeded') {
-      const { id: paymentId, amount, metadata, user } = data;
-
-      // Add user to tournament
-      const userId = user?.id || metadata?.userId || paymentId;
-      const userName = user?.username || user?.email || `Player ${userId.slice(0, 6)}`;
-
-      // Check if user already entered today's tournament
-      const existingEntry = tournamentData.currentTournament.entries.find(
-        entry => entry.userId === userId
-      );
-
-      if (!existingEntry) {
-        tournamentData.currentTournament.entries.push({
-          userId,
-          userName,
-          paymentId,
-          entryTime: new Date().toISOString(),
-          bestScore: 0
-        });
-
-        // Update prize pool ($2.00 = 200 cents)
-        tournamentData.currentTournament.prizePool += 2.00;
-
-        console.log(`User ${userName} joined tournament. Prize pool: $${tournamentData.currentTournament.prizePool}`);
-      }
-    }
-
-    res.status(200).json({ success: true });
+    res.status(200).send('Webhook received and verified.');
   } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Webhook Error:', error.message);
+    res.status(400).send(`Webhook Error: ${error.message}`);
   }
 }
