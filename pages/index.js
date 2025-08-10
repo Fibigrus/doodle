@@ -375,6 +375,7 @@ export default function TournamentDoodleJump({ user, initialLeaderboard, error }
 export async function getServerSideProps(context) {
   try {
     // Add a test to see if the server can reach the JWKS URL
+    // Add a test to see if the server can reach the JWKS URLdd
     console.log('Attempting to fetch JWKS URL...');
     const jwksResponse = await fetch('https://data.whop.com/api/v2/oauth/jwks');
     console.log('JWKS fetch response status:', jwksResponse.status);
